@@ -5,6 +5,9 @@ import json
 # para trabalhar com datas
 from datetime import datetime, timedelta
 from pprint import pprint
+import pandas as pd
+import numpy as np
+import plotly.express as px
 
 load_dotenv()
 
@@ -223,7 +226,78 @@ def list_project_cards(project_id):
         cards.append(Card(**card_data))
     return cards
 
+
+def create_burndown_chart(cards):
+    df = pd.DataFrame([card.__dict__ for card in cards])
+    df["status_updatedAt"] = pd.to_datetime(df["status_updatedAt"])
+    df["iteration_end"] = pd.to_datetime(df["iteration_end"])
+    df["estimate_hours"] = pd.to_numeric(df["estimate_hours"])
+    
+    # plot a line chart with the burndown
+    # line 1: x = iteration_end, y = estimate_hours (sum cumulatively)
+    # line 2: x = status_updatedAt (if status_name is "Done"), y = estimate_hours (sum cumulatively)
+
+    # create a new dataframe with the burndown data
+    burndown_data = []
+    for item in df.iterrows():
+        row = item[1]
+        iteration_end = row["iteration_end"]
+        status_name = row["status_name"]
+        status_updatedAt = row["status_updatedAt"]
+        # get only date part, ignore time
+        status_updatedAt = status_updatedAt.replace(hour=0, minute=0, second=0, microsecond=0)
+        estimate_hours = row["estimate_hours"]
+        estimate_hours_status = estimate_hours if status_name == "Done" else 0
+    
+        burndown_data.append({
+            "iteration_end": iteration_end,
+            "status_updatedAt": status_updatedAt,
+            "estimate_hours": estimate_hours,
+            "estimate_hours_status": estimate_hours_status
+        })
+    burndown_df = pd.DataFrame(burndown_data)
+
+    iter_data = pd.DataFrame()
+    iter_data['iteration_end'] = burndown_df['iteration_end']
+    iter_data['estimate_hours'] = burndown_df['estimate_hours']
+    # group by iteration_end and sum the estimate_hours
+    iter_data = iter_data.groupby('iteration_end').sum().reset_index()
+    # sum cumulatively
+    iter_data['estimate_hours'] = iter_data['estimate_hours'].cumsum()
+
+    status_data = pd.DataFrame()
+    status_data['status_updatedAt'] = burndown_df['status_updatedAt']
+    status_data['estimate_hours_status'] = burndown_df['estimate_hours_status']
+    # group by status_updatedAt and sum the estimate_hours_status
+    status_data = status_data.groupby('status_updatedAt').sum().reset_index()
+    # sum cumulatively
+    status_data['estimate_hours_status'] = status_data['estimate_hours_status'].cumsum()
+
+    print(iter_data)
+    print(status_data)
+
+    fig = px.line(iter_data, x='iteration_end', y='estimate_hours', title='Burndown Chart')
+    fig.add_scatter(x=status_data['status_updatedAt'], y=status_data['estimate_hours_status'], mode='lines', name='Done')
+    
+    # save the chart as a file
+    if not os.path.exists("burndown_charts"):
+        os.makedirs("burndown_charts")
+    today_date = datetime.now().strftime("%Y-%m-%d")
+    chart_filename = f"burndown_charts/burndown_chart_{today_date}.png"
+    fig.write_image(chart_filename)
+
+
+        
+
+    
+
+
 if __name__ == '__main__':
     cards = list_project_cards(PROJECT_ID)
-    for card in cards:
-        print(card)
+    # for card in cards:
+    #     if card.status_name == "Done":
+    #         print(card)
+    
+    create_burndown_chart(cards)
+    
+

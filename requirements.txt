@@ -1,2 +1,6 @@
 python-dotenv
 requests
+plotly
+kaleido==0.1.0post1
+pandas
+numpy
