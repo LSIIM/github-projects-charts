@@ -276,7 +276,8 @@ def create_burndown_chart(cards):
     print(iter_data)
     print(status_data)
 
-    fig = px.line(iter_data, x='iteration_end', y='estimate_hours', title='Burndown Chart')
+    fig = px.line(title='Burndown Chart', labels={'iteration_end':'Iteration End', 'estimate_hours':'Estimate Hours'}, template='plotly_dark')
+    fig.add_scatter(x=iter_data['iteration_end'], y=iter_data['estimate_hours'], mode='lines', name='Estimate Hours')
     fig.add_scatter(x=status_data['status_updatedAt'], y=status_data['estimate_hours_status'], mode='lines', name='Done')
     
     # save the chart as a file
@@ -284,7 +285,7 @@ def create_burndown_chart(cards):
         os.makedirs("burndown_charts")
     today_date = datetime.now().strftime("%Y-%m-%d")
     chart_filename = f"burndown_charts/burndown_chart_{today_date}.png"
-    fig.write_image(chart_filename)
+    fig.write_image(chart_filename, height=1000, width=2000)
 
 
         
