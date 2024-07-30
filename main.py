@@ -35,10 +35,10 @@ class Card:
         else:
             raise ValueError(f"status_updatedAt must be a datetime object: {status_updatedAt}")
         self.iteration_id = str(iteration_id)
-        if isinstance(iteration_end, datetime):
+        if isinstance(iteration_end, datetime) or iteration_end is None:
             self.iteration_end = iteration_end
         else:
-            raise ValueError(f"iteration_end must be a datetime object: {iteration_end}")
+            raise ValueError(f"iteration_end must be a datetime object or None: {iteration_end}")
         if isinstance(estimate_hours, (int, float)):
             self.estimate_hours = str(estimate_hours)
         else:
@@ -69,98 +69,108 @@ def run_query(query, variables=None):
         raise Exception(f"Query failed with status code {request.status_code}. {request.json()}")
 
 def list_project_cards(project_id):
-    query = '''
-    query($projectId: ID!) {
-        node(id: $projectId) {
-            ... on ProjectV2 {
-                items(first: 20) {
-                    nodes {
-                        id
-                        fieldValues(first: 20) {
-                            nodes {
-                                ... on ProjectV2ItemFieldTextValue {
-                                    text
-                                    field {
-                                        ... on ProjectV2FieldCommon {
-                                            name
-                                            id
-                                        }
-                                    }
-                                }
-                                ... on ProjectV2ItemFieldDateValue {
-                                    date
-                                    field {
-                                        ... on ProjectV2FieldCommon {
-                                            name
-                                            id
-                                        }
-                                    }
-                                }
-                                ... on ProjectV2ItemFieldSingleSelectValue {
-                                    name
-                                    updatedAt
-                                    field {
-                                        ... on ProjectV2FieldCommon {
-                                            name
-                                            updatedAt
-                                            id
-                                        }
-                                    }
-                                }
-                                ... on ProjectV2ItemFieldNumberValue {
-                                    number
-                                    field {
-                                        ... on ProjectV2FieldCommon {
-                                            name
-                                            id
-                                        }
-                                    }
-                                }
-                                ... on ProjectV2ItemFieldIterationValue {
-                                    iterationId
-                                    startDate
-                                    duration 
-                                    title
-                                    field {
-                                        ... on ProjectV2FieldCommon {
-                                            name
-                                            id
-                                        }
-                                    }
-                                }
-                                ... on ProjectV2ItemFieldUserValue {
-                                    users(first: 10) {
-                                        nodes {
-                                            login 
-                                        }
-                                    }
-                                    field {
-                                        ... on ProjectV2FieldCommon {
-                                            name
-                                            id
-                                        }
-                                    }
-                                }
-                            }
+    cards = []
+    has_next_page = True
+    end_cursor = None  # Início sem cursor
+
+    while has_next_page:
+        query = '''
+        query($projectId: ID!, $cursor: String) { 
+            node(id: $projectId) {
+                ... on ProjectV2 {
+                    items(first: 20, after: $cursor) {
+                        pageInfo {
+                            hasNextPage
+                            endCursor
                         }
-                        content {
-                            ... on DraftIssue {
-                                title
-                                body
-                            }
-                            ... on Issue {
-                                title
-                                assignees(first: 10) {
-                                    nodes {
-                                        login
+                        nodes {
+                            id
+                            fieldValues(first: 20) {
+                                nodes {
+                                    ... on ProjectV2ItemFieldTextValue {
+                                        text
+                                        field {
+                                            ... on ProjectV2FieldCommon {
+                                                name
+                                                id
+                                            }
+                                        }
+                                    }
+                                    ... on ProjectV2ItemFieldDateValue {
+                                        date
+                                        field {
+                                            ... on ProjectV2FieldCommon {
+                                                name
+                                                id
+                                            }
+                                        }
+                                    }
+                                    ... on ProjectV2ItemFieldSingleSelectValue {
+                                        name
+                                        updatedAt
+                                        field {
+                                            ... on ProjectV2FieldCommon {
+                                                name
+                                                updatedAt
+                                                id
+                                            }
+                                        }
+                                    }
+                                    ... on ProjectV2ItemFieldNumberValue {
+                                        number
+                                        field {
+                                            ... on ProjectV2FieldCommon {
+                                                name
+                                                id
+                                            }
+                                        }
+                                    }
+                                    ... on ProjectV2ItemFieldIterationValue {
+                                        iterationId
+                                        startDate
+                                        duration 
+                                        title
+                                        field {
+                                            ... on ProjectV2FieldCommon {
+                                                name
+                                                id
+                                            }
+                                        }
+                                    }
+                                    ... on ProjectV2ItemFieldUserValue {
+                                        users(first: 100) {
+                                            nodes {
+                                                login 
+                                            }
+                                        }
+                                        field {
+                                            ... on ProjectV2FieldCommon {
+                                                name
+                                                id
+                                            }
+                                        }
                                     }
                                 }
                             }
-                            ... on PullRequest {
-                                title
-                                assignees(first: 10) {
-                                    nodes {
-                                        login
+                            content {
+                                ... on DraftIssue {
+                                    title
+                                    body
+                                }
+                                ... on Issue {
+                                    title
+                                    assignees(first: 10) {
+                                        nodes {
+                                            login
+                                        }
+                                    }
+                                }
+                                ... on PullRequest {
+                                    title
+                                    assignees(first: 100) {
+                                        nodes {
+                                            login
+                                        }
                                     }
                                 }
                             }
@@ -169,61 +179,66 @@ def list_project_cards(project_id):
                 }
             }
         }
-    }
-    '''
-    variables = {"projectId": project_id}
-    result = run_query(query, variables)
-    cards = []
-    # pprint(result)
-    items = result["data"]["node"]["items"]["nodes"]
-    for item in items:
-        content = item.get("content")
-        card_data = {
-            "id": None,
-            "title": None,
-            "assignees": [],
-            "status_name": None,
-            "status_updatedAt": None,
-            "iteration_id": None,
-            "iteration_end": None,
-            "estimate_hours": None,
-            "prioriority": None,
-            "impact": None
-
-        }
-        if content:
-            title = content.get("title", "Sem título")
-            card_data["title"] = title
-            # print(f" - Item ID: {item['id']}, Título: {title}")
-            assignees = content.get("assignees", {}).get("nodes", [])
-            assignee_logins = [assignee['login'] for assignee in assignees]
-            # print(f"    Assignees: {', '.join(assignee_logins) if assignee_logins else 'Nenhum'}")
+        '''
+        variables = {"projectId": project_id, "cursor": end_cursor}
+        result = run_query(query, variables)
+        # pprint(result)
+        if 'errors' in result:
+            raise Exception(f"GraphQL Error: {result['errors']}")
         
-        field_values = item.get("fieldValues", {}).get("nodes", [])
-        for field in field_values:
-            field_name = field.get("field", {}).get("name", "Desconhecido")
-            field_value = field.get("text") or field.get("date") or field.get("name") or field.get("number") or "Sem valor"
+        items = result.get("data", {}).get("node", {}).get("items", {}).get("nodes", [])
+        page_info = result.get("data", {}).get("node", {}).get("items", {}).get("pageInfo", {})
+        has_next_page = page_info.get("hasNextPage", False)
+        end_cursor = page_info.get("endCursor")
+        for item in items:
+            content = item.get("content")
+            card_data = {
+                "id": None,
+                "title": None,
+                "assignees": [],
+                "status_name": None,
+                "status_updatedAt": None,
+                "iteration_id": None,
+                "iteration_end": None,
+                "estimate_hours": None,
+                "prioriority": None,
+                "impact": None
 
-            if field_name == "Status":
-                card_data["status_name"] = field.get('name')
-                card_data["status_updatedAt"] = datetime.strptime(field.get('updatedAt'), "%Y-%m-%dT%H:%M:%SZ")
+            }
+            if content:
+                title = content.get("title", "Sem título")
+                card_data["title"] = title
+                # print(f" - Item ID: {item['id']}, Título: {title}")
+                assignees = content.get("assignees", {}).get("nodes", [])
+                assignee_logins = [assignee['login'] for assignee in assignees]
+                # print(f"    Assignees: {', '.join(assignee_logins) if assignee_logins else 'Nenhum'}")
+            
+            field_values = item.get("fieldValues", {}).get("nodes", [])
+            for field in field_values:
+                field_name = field.get("field", {}).get("name", "Desconhecido")
+                field_value = field.get("text") or field.get("date") or field.get("name") or field.get("number") or "Sem valor"
 
-            if "iterationId" in field:
-                field_value = f"{field.get('title')} (Início: {field.get('startDate')}, Duração: {field.get('duration')} dias, "
-                start_datetime = datetime.strptime(field.get('startDate'), "%Y-%m-%d")
-                end_datetime = start_datetime + timedelta(days=field.get('duration'))
-                field_value += f"Término: {end_datetime.strftime('%Y-%m-%d')})"
-                card_data["iteration_id"] = field.get('iterationId')
-                card_data["iteration_end"] = end_datetime
-            if "users" in field:
-                field_value = "(" + ", ".join([user['login'] for user in field.get('users', {}).get('nodes', [])]) +")"
-                card_data["assignees"] = field.get('users', {}).get('nodes', [])
-            if field_name == "Estimate (Hours)":
-                card_data["estimate_hours"] = field_value
+                if field_name == "Status":
+                    card_data["status_name"] = field.get('name')
+                    card_data["status_updatedAt"] = datetime.strptime(field.get('updatedAt'), "%Y-%m-%dT%H:%M:%SZ")
 
-            # print(f"    Campo: {field_name}, Valor: {field_value}")
-            # pprint(card_data)
-        cards.append(Card(**card_data))
+                if "iterationId" in field:
+                    field_value = f"{field.get('title')} (Início: {field.get('startDate')}, Duração: {field.get('duration')} dias, "
+                    start_datetime = datetime.strptime(field.get('startDate'), "%Y-%m-%d")
+                    end_datetime = start_datetime + timedelta(days=field.get('duration'))
+                    field_value += f"Término: {end_datetime.strftime('%Y-%m-%d')})"
+                    card_data["iteration_id"] = field.get('iterationId')
+                    card_data["iteration_end"] = end_datetime
+                    # print(content)
+                if "users" in field:
+                    field_value = "(" + ", ".join([user['login'] for user in field.get('users', {}).get('nodes', [])]) +")"
+                    card_data["assignees"] = field.get('users', {}).get('nodes', [])
+                if field_name == "Estimate (Hours)":
+                    card_data["estimate_hours"] = field_value
+
+                # print(f"    Campo: {field_name}, Valor: {field_value}")
+                # pprint(card_data)
+            cards.append(Card(**card_data))
     return cards
 
 
@@ -262,8 +277,14 @@ def create_burndown_chart(cards):
     iter_data['estimate_hours'] = burndown_df['estimate_hours']
     # group by iteration_end and sum the estimate_hours
     iter_data = iter_data.groupby('iteration_end').sum().reset_index()
+
+    # ------
+    # DROP THE FIRST LINE BECAUSE IT WAS BEING TRACKED IN JIRA AND MOVED TO GITHUB, SO IT WAS NOT POSSIBLE TO UPDATE THE STATUS IN THE PAST
+    # iter_data = iter_data.iloc[1:]
+    # ------
     # sum cumulatively
     iter_data['estimate_hours'] = iter_data['estimate_hours'].cumsum()
+
 
     status_data = pd.DataFrame()
     status_data['status_updatedAt'] = burndown_df['status_updatedAt']
